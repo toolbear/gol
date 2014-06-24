@@ -32,22 +32,32 @@ f =
     return true
 
   evolve: (alive) ->
-    census = {}
     next_gen = {}
-    for k, cell of alive
-      [fit, census] = f.fit k, cell, census
-      next_gen[k] = cell if fit
+    census = {}
+    vicinity = {}
+
+    survives = (k, [x,y]) ->
+      population = census[k] ?= survey x,y, 1 # memoize
+      2 < population < 5
+
+    thrives = (k, [x, y]) ->
+      population = census[k] ?= survey x,y, 0 # memoize
+      population is 3
+
+    survey = (x,y, distance) ->
+      population = 0
+      for nx in [x-1..x+1]
+        for ny in [y-1..y+1]
+          c = f.pack nx,ny
+          if alive[c]?
+            population++
+          else if distance > 0
+            vicinity[c] ?= [nx,ny]
+      population
+
+    next_gen[k] = cell for k, cell of alive    when survives k, cell
+    next_gen[k] = cell for k, cell of vicinity when thrives  k, cell
     next_gen
-
-  fit: (k, [x,y], census) ->
-    population = census[k] ?= f.survey x,y
-    [2 < population < 5, census]
-
-  survey: (x,y) ->
-    population = 0
-    for nx in [x-1..x+1]
-      population++ for ny in [y-1..y+1] when alive[f.pack nx,ny]?
-    population
 
 alive = {}
 alive[f.pack x,y] = [x,y] for [x,y] in pattern.initial
