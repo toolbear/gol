@@ -1,4 +1,5 @@
 generation = 0
+alive = {}
 
 pattern =
   hblinker: [
@@ -15,21 +16,33 @@ pattern =
   ]
 pattern.initial = pattern.hblinker
 
+view_box_size = 100
 world = Snap '#world'
 world.attr
   preserveAspectRatio: "xMidYMid meet"
-  ,           viewBox: "0 0 50 50"
+  ,           viewBox: "0 0 #{view_box_size} #{view_box_size}"
 cells = world.group()
-cells.transform (Snap.matrix 1, 0, 0, 1, 25, 25)
+cells.transform (Snap.matrix 1, 0, 0, 1, view_box_size / 2, view_box_size / 2)
+rects = {}
+running = false
 
 f =
   pack: (x,y) -> (y & 0xffff) << 16 | x & 0xffff
 
   unpack: (cell) -> [(cell << 16) >> 16, cell >> 16]
 
-  render: (x, y) ->
-    cells.add (world.rect x, y, 1, 1)
-    return true
+  birth: (k, [x, y]) ->
+    throw "[#{x},#{y}] already rendered" if rects[k]?
+    rect = world.rect x, y, 1, 1
+    rect.attr opacity: 0
+    rect.animate { opacity: 1 }, 250, mina.easein
+    cells.add rect
+    rects[k] = rect
+
+  death: (k, rect) ->
+    throw "[#{x},#{y}] never rendered" unless rects[k]?
+    delete rects[k]
+    rect.animate { opacity: 0 }, 100, mina.easeout, () -> rect.remove()
 
   evolve: (alive) ->
     next_gen = {}
@@ -59,14 +72,24 @@ f =
     next_gen[k] = cell for k, cell of vicinity when thrives  k, cell
     next_gen
 
-alive = {}
+  tick: () ->
+    ++generation
+    console.log generation
+    alive = f.evolve alive
+    f.birth k, cell for k, cell of alive when !rects[k]?
+    f.death k, rect for k, rect of rects when !alive[k]?
+    running = window.setTimeout f.tick, 300
+    true
+
 alive[f.pack x,y] = [x,y] for [x,y] in pattern.initial
 
-f.render x,y for k, [x,y] of alive
+f.birth k, cell for k, cell of alive
 
 world.click () ->
-  ++generation
-  console.log generation
-  alive = f.evolve alive
-  (cells.selectAll 'rect').remove()
-  f.render x,y for k, [x,y] of alive
+  unless running
+    f.tick()
+  else
+    window.clearTimeout running
+    running = false
+  console.log 'paused' unless running
+  true
