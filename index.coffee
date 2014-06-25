@@ -1,5 +1,9 @@
 generation = 0
+running = false
 alive = {}
+scale = 2
+max_generation = 500
+corpse = {}
 
 pattern =
   hblinker: [
@@ -37,33 +41,49 @@ pattern =
 
 pattern.initial = pattern.hblinker
 
-view_box_size = 100
 world = Snap '#world'
-world.attr
-  preserveAspectRatio: "xMidYMid meet"
-  ,           viewBox: "0 0 #{view_box_size} #{view_box_size}"
+graves = world.group()
 cells = world.group()
-cells.transform (Snap.matrix 1, 0, 0, 1, view_box_size / 2, view_box_size / 2)
-rects = {}
-running = false
+for g in [graves, cells]
+  g.transform (Snap.matrix scale, 0, 0, scale, window.world.offsetWidth / 2, window.world.offsetHeight / 2)
+
+ rects = {}
 
 f =
   pack: (x,y) -> (y & 0xffff) << 16 | x & 0xffff
 
   unpack: (cell) -> [(cell << 16) >> 16, cell >> 16]
 
-  birth: (k, [x, y]) ->
+  bear: (k, [x, y]) ->
     throw "[#{x},#{y}] already rendered" if rects[k]?
-    rect = world.rect x, y, 1, 1
-    rect.attr opacity: 0
-    rect.animate { opacity: 1 }, 250, mina.easein
-    cells.add rect
-    rects[k] = rect
+    rects[k] = if corpse[k]?
+      f.resurrect k
+    else
+      cells
+        .rect x, y, 1, 1
+        .attr fill: "#00f"
 
-  death: (k, rect) ->
+  resurrect: (k) ->
+    throw "[#{x},#{y}] not a corpse" unless corpse[k]?
+    rect = corpse[k]
+    delete corpse[k]
+    rect
+     .stop()
+     .remove()
+     .appendTo(cells)
+     .attr fill: "#00f"
+
+  smite: (k, rect) ->
     throw "[#{x},#{y}] never rendered" unless rects[k]?
     delete rects[k]
-    rect.animate { opacity: 0 }, 100, mina.easeout, () -> rect.remove()
+    f.bury k, rect
+
+  bury: (k, rect) ->
+    corpse[k] = rect
+     .stop()
+     .remove()
+     .appendTo graves
+     .attr fill: "#eee"
 
   evolve: (alive) ->
     next_gen = {}
@@ -95,22 +115,37 @@ f =
 
   tick: () ->
     ++generation
-    console.log generation
     alive = f.evolve alive
-    f.birth k, cell for k, cell of alive when !rects[k]?
-    f.death k, rect for k, rect of rects when !alive[k]?
-    running = window.setTimeout f.tick, 300
+    f.bear k, cell for k, cell of alive when !rects[k]?
+    f.smite k, rect for k, rect of rects when !alive[k]?
     true
 
-alive[f.pack x,y] = [x,y] for [x,y] in pattern.initial
+  run: () ->
+    f.tick()
+    f.pause() unless generation < max_generation
+    running = window.setTimeout f.run, 0 if running
+    true
 
-f.birth k, cell for k, cell of alive
+  pause: () ->
+    console.timelineEnd()
+    console.profileEnd()
+    window.clearTimeout running
+    running = false
+    console.log "paused on generation #{generation}" unless running
+    world.text(window.world.offsetWidth / 2, window.world.offsetHeight / 2,"paused")
+    true
+
+  load: () ->
+    alive[f.pack x,y] = [x,y] for [x,y] in pattern.initial
+    f.bear k, cell for k, cell of alive
 
 world.click () ->
   unless running
-    f.tick()
+    console.timeline()
+    console.profile()
+    running = true
+    f.run()
   else
-    window.clearTimeout running
-    running = false
-  console.log 'paused' unless running
-  true
+    f.pause()
+
+window.addEventListener 'load', f.load, false
