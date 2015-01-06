@@ -1,9 +1,10 @@
 generation = 0
 running = false
 alive = {}
-scale = 2
-max_generation = 500
-corpse = {}
+scale = 1
+world = null
+dx = 0
+dy = 0
 
 pattern =
   hblinker: [
@@ -38,52 +39,26 @@ pattern =
     [ 2, -1]
     [ 3, -1]
   ]
-
-pattern.initial = pattern.hblinker
-
-world = Snap '#world'
-graves = world.group()
-cells = world.group()
-for g in [graves, cells]
-  g.transform (Snap.matrix scale, 0, 0, scale, window.world.offsetWidth / 2, window.world.offsetHeight / 2)
-
- rects = {}
+pattern.initial = pattern.acorn
 
 f =
   pack: (x,y) -> (y & 0xffff) << 16 | x & 0xffff
 
   unpack: (cell) -> [(cell << 16) >> 16, cell >> 16]
 
-  bear: (k, [x, y]) ->
-    throw "[#{x},#{y}] already rendered" if rects[k]?
-    rects[k] = if corpse[k]?
-      f.resurrect k
-    else
-      cells
-        .rect x, y, 1, 1
-        .attr fill: "#00f"
+  bear: (k, [x,y]) ->
+    dx = ($ '#world').width() / 2
+    dy = ($ '#world').height() / 2
 
-  resurrect: (k) ->
-    throw "[#{x},#{y}] not a corpse" unless corpse[k]?
-    rect = corpse[k]
-    delete corpse[k]
-    rect
-     .stop()
-     .remove()
-     .appendTo(cells)
-     .attr fill: "#00f"
+    world.fillStyle = "#0000ff"
+    world.fillRect x*scale + dx, y*scale + dy, scale, scale
+    k
 
-  smite: (k, rect) ->
-    throw "[#{x},#{y}] never rendered" unless rects[k]?
-    delete rects[k]
-    f.bury k, rect
+  smite: (k, [x,y]) ->
 
-  bury: (k, rect) ->
-    corpse[k] = rect
-     .stop()
-     .remove()
-     .appendTo graves
-     .attr fill: "#eee"
+    world.fillStyle = "#ffffff"
+    world.fillRect x*scale + dx, y*scale + dy, scale, scale
+    k
 
   evolve: (alive) ->
     next_gen = {}
@@ -106,46 +81,54 @@ f =
           if alive[c]?
             population++
           else if distance > 0
-            vicinity[c] ?= [nx,ny]
+            vicinity[c] ?= [nx,ny, generation]
       population
 
-    next_gen[k] = cell for k, cell of alive    when survives k, cell
-    next_gen[k] = cell for k, cell of vicinity when thrives  k, cell
+    for k, cell of alive when survives k, cell
+      next_gen[k] = cell
+    for k, cell of vicinity when thrives k, cell
+      next_gen[k] = cell
     next_gen
 
   tick: () ->
     ++generation
-    alive = f.evolve alive
-    f.bear k, cell for k, cell of alive when !rects[k]?
-    f.smite k, rect for k, rect of rects when !alive[k]?
-    true
+    next_gen = f.evolve alive
+    for k, cell of next_gen when !alive[k]?
+      f.bear k, cell
+    for k, rect of alive when !next_gen[k]?
+      f.smite k, rect
+    alive = next_gen
 
   run: () ->
     f.tick()
-    f.pause() unless generation < max_generation
     running = window.setTimeout f.run, 0 if running
     true
 
   pause: () ->
-    console.timelineEnd()
-    console.profileEnd()
     window.clearTimeout running
     running = false
     console.log "paused on generation #{generation}" unless running
-    world.text(window.world.offsetWidth / 2, window.world.offsetHeight / 2,"paused")
     true
 
   load: () ->
-    alive[f.pack x,y] = [x,y] for [x,y] in pattern.initial
-    f.bear k, cell for k, cell of alive
+    $win = $ window
+    w = $win.width()
+    h = $win.height()
+    dx = w / 2
+    dy = w / 2
+    $world = $('#world').attr width: w, height: h
 
-world.click () ->
-  unless running
-    console.timeline()
-    console.profile()
-    running = true
-    f.run()
-  else
-    f.pause()
+    $world.click () ->
+      unless running
+        running = true
+        f.run()
+      else
+        f.pause()
+    world = $world[0].getContext '2d'
+    for [x,y] in pattern.initial
+      alive[f.pack x,y] = [x,y, generation]
+    for k, cell of alive
+      f.bear k, cell
+    true
 
-window.addEventListener 'load', f.load, false
+$ f.load
